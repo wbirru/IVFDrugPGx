@@ -426,7 +426,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ```
 MIT License
 
-Copyright (c) 2025 [Your Organization]
+Copyright (c) 2025 Eveia
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -447,10 +447,13 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ## 📞 Contact
 
-**Project Lead**: [Your Name]  
-**Email**: your.email@example.com  
-**Organization**: [Your Organization]  
-**Project Link**: https://github.com/yourusername/ivf-pgx-mvp
+**Project Lead**: Emanuel Birru
+
+**Email**: emanuel.birru@eveia.com.au
+
+**Organization**: Eveia
+
+**Project Link**: https://github.com/eveia/ivf-pgx-mvp
 
 ---
 
