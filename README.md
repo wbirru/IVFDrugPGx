@@ -447,13 +447,10 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 ## 📞 Contact
 
-**Project Lead**: Emanuel Birru
-
-**Email**: emanuel.birru@eveia.com.au
-
-**Organization**: Eveia
-
-**Project Link**: https://github.com/eveia/ivf-pgx-mvp
+- **Project Lead**: Emanuel Birru
+- **Email**: emanuel.birru@eveia.com.au
+- **Organization**: Eveia
+- **Project Link**: https://github.com/eveia/ivf-pgx-mvp
 
 ---
 
