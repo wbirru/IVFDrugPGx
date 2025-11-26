@@ -36,7 +36,36 @@ st.markdown("""
         color: #1f77b4;
         margin-bottom: 0;
     }
-  
+    .sub-header {
+        font-size: 1.2rem;
+        color: #666;
+        margin-top: 0;
+    }
+    .disclaimer-banner {
+        background-color: #fff3cd;
+        border-left: 5px solid #ffc107;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 5px;
+        color: #000000;
+    }
+    .disclaimer-banner h3 {
+        color: #000000;
+    }
+    .disclaimer-banner p {
+        color: #000000;
+    }
+    .tier-badge {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 15px;
+        font-weight: bold;
+        font-size: 0.9rem;
+    }
+    .tier-a { background-color: #28a745; color: white; }
+    .tier-b { background-color: #ffc107; color: black; }
+    .tier-c { background-color: #6c757d; color: white; }
+    .genotype-box {
         background-color: #e7f3ff;
         border-left: 4px solid #1f77b4;
         padding: 10px;
@@ -948,7 +977,7 @@ def render_label_card(drug: str):
     else:
         st.info("No specific label algorithms for this medication.")
 
-def render_discussion_prompts(drug: str):
+def render_discussion_prompts(drug: str, gene_key: str = ""):
     """Render discussion prompts checklist"""
     st.markdown("### 💬 Discussion Prompts")
     
@@ -975,7 +1004,9 @@ def render_discussion_prompts(drug: str):
     
     if drug in prompts:
         for idx, prompt in enumerate(prompts[drug]):
-            st.checkbox(prompt, key=f"prompt_{drug}_{idx}")
+            # Add gene_key to make keys unique when multiple genes per drug
+            unique_key = f"prompt_{drug}_{gene_key}_{idx}"
+            st.checkbox(prompt, key=unique_key)
     else:
         st.write("✓ Reviewed PGx context")
         st.write("✓ Documented decision")
@@ -1057,7 +1088,7 @@ def main():
                         render_label_card(selected_drug)
                         st.markdown("---")
                         
-                        render_discussion_prompts(selected_drug)
+                        render_discussion_prompts(selected_drug, gene_key)
                         
                         if show_json:
                             with st.expander("🔍 View Full JSON"):
