@@ -168,23 +168,23 @@ This application demonstrates a **precision medicine approach** to IVF treatment
 ## 📸 Screenshots
 
 ### Main Evidence Brief with Visualizations
-![Evidence Brief Interface](docs/screenshots/evidence-brief-viz.png)
+
 *Interactive gauge charts and evidence quality metrics*
 
 ### Population Frequency Visualizations
-![Population Genetics](docs/screenshots/population-freq.png)
+
 *Bar charts showing allele frequencies across populations*
 
 ### Database Connections with Direct Links
-![Database Integrations](docs/screenshots/database-connections.png)
+
 *6 databases with clickable links and data visualization*
 
 ### Hormonal Profile Dashboard
-![Hormonal Profile](docs/screenshots/hormonal-profile.png)
+
 *Color-coded hormonal markers with reference ranges*
 
 ### Evidence Registry Analytics
-![Evidence Registry](docs/screenshots/evidence-registry-viz.png)
+
 *Tier distribution and coverage analytics*
 
 ---
