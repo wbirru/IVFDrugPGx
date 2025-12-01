@@ -18,6 +18,8 @@ from typing import Dict, List, Optional
 import time
 from functools import lru_cache
 import hashlib
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Page configuration
 st.set_page_config(
@@ -471,7 +473,7 @@ def fetch_clinvar_data(rsid: str) -> Optional[Dict]:
             'db': 'clinvar',
             'term': f'{rsid_clean}[SNP ID]',
             'retmode': 'json',
-            'retmax': 5
+            'retmax': 10  # Fetch more records
         }
         
         search_response = requests.get(search_url, params=search_params, timeout=10)
@@ -483,10 +485,12 @@ def fetch_clinvar_data(rsid: str) -> Optional[Dict]:
                 id_list = search_data['esearchresult']['idlist']
                 
                 if id_list:
+                    # Limit to first 5 for display
+                    display_limit = min(5, len(id_list))
                     summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
                     summary_params = {
                         'db': 'clinvar',
-                        'id': ','.join(id_list[:3]),
+                        'id': ','.join(id_list[:display_limit]),
                         'retmode': 'json'
                     }
                     
@@ -498,12 +502,13 @@ def fetch_clinvar_data(rsid: str) -> Optional[Dict]:
                         result = {
                             'rsid': rsid,
                             'status': 'available',
-                            'num_records': len(id_list),
+                            'num_records': display_limit,  # Use actual fetched count
+                            'total_records': len(id_list),  # Total available
                             'records': []
                         }
                         
                         if 'result' in summary_data:
-                            for record_id in id_list[:3]:
+                            for record_id in id_list[:display_limit]:
                                 if record_id in summary_data['result']:
                                     record = summary_data['result'][record_id]
                                     result['records'].append({
@@ -628,23 +633,39 @@ def fetch_gnomad_data(rsid: str) -> Optional[Dict]:
         if response.status_code == 200:
             data = response.json()
             
+            # Get all gnomAD and 1000 Genomes populations
             gnomad_pops = {}
             if 'populations' in data:
                 for pop in data['populations']:
                     pop_name = pop.get('population', '')
-                    if 'gnomad' in pop_name.lower():
-                        gnomad_pops[pop_name] = {
-                            'frequency': pop.get('frequency', 'N/A'),
-                            'allele': pop.get('allele', 'N/A')
-                        }
+                    # Include gnomAD, 1000GENOMES, and other major population databases
+                    if any(keyword in pop_name.lower() for keyword in ['gnomad', '1000genomes', 'esp', 'exac']):
+                        freq = pop.get('frequency')
+                        if freq is not None and freq > 0:  # Only include non-zero frequencies
+                            gnomad_pops[pop_name] = {
+                                'frequency': freq,
+                                'allele': pop.get('allele', 'N/A'),
+                                'allele_count': pop.get('allele_count', 'N/A')
+                            }
             
-            result = {
-                'rsid': rsid,
-                'status': 'available' if gnomad_pops else 'partial',
-                'populations': gnomad_pops,
-                'minor_allele': data.get('minor_allele', 'N/A'),
-                'message': 'Population frequencies from gnomAD database'
-            }
+            if gnomad_pops:
+                result = {
+                    'rsid': rsid,
+                    'status': 'available',
+                    'populations': gnomad_pops,
+                    'minor_allele': data.get('minor_allele', 'N/A'),
+                    'num_populations': len(gnomad_pops),
+                    'message': f'Found {len(gnomad_pops)} population frequency entries'
+                }
+            else:
+                result = {
+                    'rsid': rsid,
+                    'status': 'partial',
+                    'populations': {},
+                    'minor_allele': data.get('minor_allele', 'N/A'),
+                    'num_populations': 0,
+                    'message': 'No gnomAD-specific frequency data available for this variant'
+                }
             
             save_to_cache("gnomad", rsid, result)
             return result
@@ -773,7 +794,7 @@ def render_tier_badge(tier: str) -> str:
     return f'<span class="tier-badge {tier_class}">{tier_text.get(tier, tier)}</span>'
 
 def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: str):
-    """Render Genotype Facts with Enhanced Database Connections"""
+    """Render genotype facts with database connections"""
     st.markdown("### 🧬 Genotype Facts")
     
     col1, col2 = st.columns([2, 1])
@@ -807,14 +828,29 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                     clinvar_data = fetch_clinvar_data(rsid)
                     
                     if clinvar_data and clinvar_data.get('status') == 'available':
-                        st.success(f"✅ Found {clinvar_data.get('num_records', 0)} record(s)")
+                        num_displayed = clinvar_data.get('num_records', 0)
+                        total_records = clinvar_data.get('total_records', num_displayed)
+                        
+                        if total_records > num_displayed:
+                            st.success(f"✅ Showing {num_displayed} of {total_records} record(s)")
+                        else:
+                            st.success(f"✅ Found {num_displayed} record(s)")
+                        
+                        # Direct link to ClinVar
+                        clinvar_url = f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rsid}"
+                        st.markdown(f"🔗 [View {rsid} on ClinVar]({clinvar_url})")
                         
                         for idx, record in enumerate(clinvar_data.get('records', []), 1):
                             st.markdown(f"**Record {idx}:**")
                             st.write(f"- Clinical Significance: {record.get('clinical_significance', 'N/A')}")
                             st.write(f"- Review Status: {record.get('review_status', 'N/A')}")
                             st.caption(record.get('title', 'N/A'))
+                            
+                            if idx < len(clinvar_data.get('records', [])):
+                                st.markdown("---")
                     else:
+                        clinvar_url = f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rsid}"
+                        st.markdown(f"🔗 [Search {rsid} on ClinVar]({clinvar_url})")
                         st.info(clinvar_data.get('message', 'No data'))
             
             # dbSNP Tab
@@ -822,6 +858,10 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                 st.markdown("### 🧬 dbSNP")
                 with st.spinner("Fetching..."):
                     dbsnp_data = fetch_dbsnp_data(rsid)
+                    
+                    # Direct link to dbSNP
+                    dbsnp_url = f"https://www.ncbi.nlm.nih.gov/snp/{rsid}"
+                    st.markdown(f"🔗 [View {rsid} on dbSNP]({dbsnp_url})")
                     
                     if dbsnp_data and dbsnp_data.get('status') == 'available':
                         st.success("✅ Connected")
@@ -833,7 +873,33 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                             st.metric("MAF", str(dbsnp_data.get('minor_allele_freq', 'N/A'))[:6])
                         
                         if dbsnp_data.get('populations'):
-                            st.markdown("**Populations:**")
+                            st.markdown("**Population Frequencies:**")
+                            
+                            # Create visualization for population frequencies
+                            pop_data = []
+                            for pop, data in list(dbsnp_data['populations'].items())[:5]:
+                                freq = data.get('frequency', 0)
+                                if isinstance(freq, (int, float)):
+                                    pop_data.append({
+                                        'Population': pop.split(':')[-1] if ':' in pop else pop,
+                                        'Frequency': float(freq) * 100
+                                    })
+                            
+                            if pop_data:
+                                pop_df = pd.DataFrame(pop_data)
+                                fig_pop = px.bar(
+                                    pop_df,
+                                    x='Population',
+                                    y='Frequency',
+                                    title='Allele Frequency by Population',
+                                    labels={'Frequency': 'Frequency (%)'},
+                                    color='Frequency',
+                                    color_continuous_scale='Blues'
+                                )
+                                fig_pop.update_layout(height=300)
+                                st.plotly_chart(fig_pop, use_container_width=True)
+                            
+                            # Show table
                             for pop, data in list(dbsnp_data['populations'].items())[:3]:
                                 st.write(f"- {pop}: {data.get('frequency', 'N/A')}")
                     else:
@@ -845,13 +911,55 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                 with st.spinner("Fetching..."):
                     gnomad_data = fetch_gnomad_data(rsid)
                     
+                    # Direct link to gnomAD
+                    gnomad_url = f"https://gnomad.broadinstitute.org/variant/{rsid}"
+                    st.markdown(f"🔗 [View {rsid} on gnomAD]({gnomad_url})")
+                    
                     if gnomad_data and gnomad_data.get('status') in ['available', 'partial']:
-                        st.success("✅ Connected")
-                        st.caption(gnomad_data.get('message', ''))
+                        num_pops = gnomad_data.get('num_populations', 0)
                         
-                        if gnomad_data.get('populations'):
-                            for pop, data in gnomad_data['populations'].items():
-                                st.write(f"- {pop}: {data.get('frequency', 'N/A')}")
+                        if num_pops > 0:
+                            st.success(f"✅ Found {num_pops} population(s)")
+                            st.caption(gnomad_data.get('message', ''))
+                            
+                            if gnomad_data.get('populations'):
+                                # Visualize gnomAD population frequencies
+                                gnomad_pop_data = []
+                                for pop, data in gnomad_data['populations'].items():
+                                    freq = data.get('frequency', 0)
+                                    if isinstance(freq, (int, float)) and freq > 0:
+                                        # Clean up population name for display
+                                        clean_name = pop.replace('1000GENOMES:phase_3:', '').replace('gnomAD:', '').replace('_', ' ')
+                                        gnomad_pop_data.append({
+                                            'Population': clean_name,
+                                            'Frequency': float(freq) * 100,
+                                            'Allele': data.get('allele', 'N/A')
+                                        })
+                                
+                                if gnomad_pop_data:
+                                    gnomad_df = pd.DataFrame(gnomad_pop_data)
+                                    fig_gnomad = px.bar(
+                                        gnomad_df,
+                                        x='Population',
+                                        y='Frequency',
+                                        title='Population Allele Frequencies',
+                                        labels={'Frequency': 'Frequency (%)'},
+                                        color='Frequency',
+                                        color_continuous_scale='Greens',
+                                        hover_data=['Allele']
+                                    )
+                                    fig_gnomad.update_layout(height=350, xaxis_tickangle=-45)
+                                    st.plotly_chart(fig_gnomad, use_container_width=True)
+                                    
+                                    # Show detailed table
+                                    st.markdown("**Detailed Frequencies:**")
+                                    for pop, data in list(gnomad_data['populations'].items())[:10]:
+                                        clean_name = pop.replace('1000GENOMES:phase_3:', '').replace('gnomAD:', '')
+                                        st.write(f"- {clean_name}: {float(data.get('frequency', 0))*100:.4f}% ({data.get('allele', 'N/A')})")
+                                else:
+                                    st.info("No frequency data to visualize")
+                        else:
+                            st.info(gnomad_data.get('message', 'No population data available'))
                     else:
                         st.info(gnomad_data.get('message', 'No data'))
             
@@ -860,6 +968,13 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                 st.markdown("### 🔬 Ensembl")
                 with st.spinner("Fetching..."):
                     ensembl_data = fetch_ensembl_data(gene_symbol)
+                    
+                    # Direct links to Ensembl
+                    ensembl_gene_url = f"https://www.ensembl.org/Homo_sapiens/Gene/Summary?g={gene_symbol}"
+                    ensembl_variant_url = f"https://www.ensembl.org/Homo_sapiens/Variation/Explore?v={rsid}"
+                    
+                    st.markdown(f"🔗 [View {gene_symbol} gene on Ensembl]({ensembl_gene_url})")
+                    st.markdown(f"🔗 [View {rsid} variant on Ensembl]({ensembl_variant_url})")
                     
                     if ensembl_data and ensembl_data.get('status') == 'available':
                         st.success("✅ Connected")
@@ -872,6 +987,11 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
             # PharmGKB Tab
             with db_tabs[4]:
                 st.markdown("### 💊 PharmGKB")
+                
+                # Direct link to PharmGKB
+                pharmgkb_gene_url = f"https://www.pharmgkb.org/gene/{gene_symbol}"
+                st.markdown(f"🔗 [View {gene_symbol} on PharmGKB]({pharmgkb_gene_url})")
+                
                 pharmgkb_data = fetch_pharmgkb_data(gene_symbol)
                 
                 if pharmgkb_data and pharmgkb_data.get('status') == 'available':
@@ -888,6 +1008,11 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                 st.markdown("### 📚 PubMed")
                 drug_name = evidence.get('drug', 'IVF')
                 
+                # Direct search link to PubMed
+                search_query = f"{gene_symbol} {drug_name} pharmacogenomics IVF".replace(' ', '+')
+                pubmed_search_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={search_query}"
+                st.markdown(f"🔗 [Search '{gene_symbol} {drug_name}' on PubMed]({pubmed_search_url})")
+                
                 with st.spinner("Searching..."):
                     pubmed_data = fetch_pubmed_citations(gene_symbol, drug_name)
                     
@@ -897,7 +1022,7 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
                         for idx, article in enumerate(pubmed_data.get('articles', []), 1):
                             st.markdown(f"**{idx}. {article.get('title', 'N/A')[:100]}...**")
                             st.caption(f"{article.get('source', 'N/A')} ({article.get('pubdate', 'N/A')})")
-                            st.markdown(f"[🔗 View]({article.get('url', '#')})")
+                            st.markdown(f"[🔗 View Article]({article.get('url', '#')})")
                             if idx < len(pubmed_data.get('articles', [])):
                                 st.markdown("---")
                     else:
@@ -906,7 +1031,7 @@ def render_genotype_card(gene_key: str, genotype_data: Dict, patient_ancestry: s
             st.caption(f"💾 Results cached | {datetime.now().strftime('%H:%M:%S')}")
 
 def render_efficacy_card(evidence: Dict):
-    """Render Efficacy Evidence"""
+    """Render efficacy evidence with visualizations"""
     st.markdown("### 📊 Efficacy Evidence")
     
     st.markdown(render_tier_badge(evidence['tier']), unsafe_allow_html=True)
@@ -918,20 +1043,82 @@ def render_efficacy_card(evidence: Dict):
     {evidence['summary']}
     """)
     
+    # Certainty visualization
     certainty = evidence.get('certainty', 'Moderate')
-    st.progress(1.0 if certainty == "High" else 0.6 if certainty == "Moderate" else 0.3)
-    st.caption(f"Evidence Certainty: {certainty}")
+    certainty_value = 1.0 if certainty == "High" else 0.6 if certainty == "Moderate" else 0.3
+    certainty_color = "green" if certainty == "High" else "orange" if certainty == "Moderate" else "red"
     
-    with st.expander("📚 Study Cohorts"):
-        for idx, cohort in enumerate(evidence.get('cohorts', []), 1):
-            st.write(f"**Study {idx}:** {cohort['design']} (N={cohort['n']}, {cohort['ancestry']}, {cohort.get('year', 'N/A')})")
+    # Create gauge chart for certainty
+    fig_certainty = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = certainty_value * 100,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': f"Evidence Certainty: {certainty}"},
+        gauge = {
+            'axis': {'range': [None, 100]},
+            'bar': {'color': certainty_color},
+            'steps': [
+                {'range': [0, 30], 'color': "lightgray"},
+                {'range': [30, 60], 'color': "gray"},
+                {'range': [60, 100], 'color': "darkgray"}
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': certainty_value * 100
+            }
+        }
+    ))
+    fig_certainty.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+    st.plotly_chart(fig_certainty, use_container_width=True)
+    
+    # Study cohorts visualization
+    with st.expander("📚 Study Cohorts & Evidence Quality"):
+        cohorts = evidence.get('cohorts', [])
+        
+        if cohorts:
+            # Create dataframe for visualization
+            cohort_df = pd.DataFrame(cohorts)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Sample size chart
+                fig_cohort = px.bar(
+                    cohort_df, 
+                    x='year', 
+                    y='n',
+                    color='design',
+                    title="Sample Sizes by Study Year",
+                    labels={'n': 'Sample Size (N)', 'year': 'Year'},
+                    color_discrete_sequence=px.colors.qualitative.Set2
+                )
+                fig_cohort.update_layout(height=300, showlegend=True)
+                st.plotly_chart(fig_cohort, use_container_width=True)
+            
+            with col2:
+                # Ancestry distribution
+                ancestry_counts = cohort_df['ancestry'].value_counts()
+                fig_ancestry = px.pie(
+                    values=ancestry_counts.values,
+                    names=ancestry_counts.index,
+                    title="Ancestry Distribution in Studies",
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                fig_ancestry.update_layout(height=300)
+                st.plotly_chart(fig_ancestry, use_container_width=True)
+            
+            # Display cohort details
+            st.markdown("**Study Details:**")
+            for idx, cohort in enumerate(cohorts, 1):
+                st.write(f"**Study {idx}:** {cohort['design']} (N={cohort['n']}, {cohort['ancestry']}, {cohort.get('year', 'N/A')})")
     
     with st.expander("📖 Citations"):
         for citation in evidence.get('citations', []):
             st.write(f"• {citation}")
 
 def render_safety_card(evidence: Dict):
-    """Render Safety Context"""
+    """Render safety context"""
     st.markdown("### 🛡️ Safety Context")
     
     safety_notes = {
@@ -952,7 +1139,7 @@ def render_safety_card(evidence: Dict):
     st.warning("**Note:** PGx associations do not replace standard clinical monitoring.")
 
 def render_label_card(drug: str):
-    """Render Label/Guideline Awareness"""
+    """Render label and guideline awareness"""
     st.markdown("### 📋 Label & Guideline Awareness")
     
     label_info = {
@@ -1111,17 +1298,141 @@ def main():
         ])
         
         st.dataframe(genotype_df, use_container_width=True)
+        
+        # Add visualization of genotype distribution
+        st.markdown("### 📊 Patient Hormonal Profile")
+        
+        # Create hormonal profile chart
+        hormones = {
+            'FSH': selected_patient['fsh'],
+            'LH': selected_patient['lh'],
+            'E2': selected_patient['e2'],
+            'P4': selected_patient['p4'],
+            'AMH': selected_patient['amh']
+        }
+        
+        # Reference ranges (example values)
+        reference_ranges = {
+            'FSH': {'min': 3, 'max': 10, 'unit': 'mIU/mL'},
+            'LH': {'min': 2, 'max': 12, 'unit': 'mIU/mL'},
+            'E2': {'min': 30, 'max': 100, 'unit': 'pg/mL'},
+            'P4': {'min': 0.1, 'max': 1.5, 'unit': 'ng/mL'},
+            'AMH': {'min': 1.0, 'max': 4.0, 'unit': 'ng/mL'}
+        }
+        
+        fig_hormones = go.Figure()
+        
+        for hormone, value in hormones.items():
+            ref = reference_ranges.get(hormone, {})
+            # Normalize to percentage of reference range
+            if ref.get('max'):
+                normalized = (value / ref['max']) * 100
+            else:
+                normalized = value
+            
+            fig_hormones.add_trace(go.Bar(
+                name=hormone,
+                x=[hormone],
+                y=[value],
+                text=[f"{value} {ref.get('unit', '')}"],
+                textposition='auto',
+                marker_color=['green' if ref.get('min', 0) <= value <= ref.get('max', 999) else 'orange']
+            ))
+        
+        fig_hormones.update_layout(
+            title="Hormonal Profile",
+            xaxis_title="Hormone",
+            yaxis_title="Concentration",
+            height=400,
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig_hormones, use_container_width=True)
+        
+        # Patient characteristics
+        st.markdown("### 📋 Patient Characteristics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Age", f"{selected_patient['age']} years")
+        with col2:
+            st.metric("BMI", f"{selected_patient['bmi']} kg/m²")
+        with col3:
+            st.metric("Ancestry", selected_patient['ancestry'])
+        with col4:
+            st.metric("Prior Response", selected_patient['prior_response'])
     
     with tab3:
         st.header("Evidence Registry")
         
         tier_filter = st.multiselect("Filter by Tier", options=["A", "B", "C"], default=["A", "B", "C"])
         
+        # Add visualization of evidence registry overview
+        st.markdown("### 📊 Evidence Registry Overview")
+        
+        # Count evidence by tier
+        tier_counts = {'A': 0, 'B': 0, 'C': 0}
+        for evidence in EVIDENCE_REGISTRY.values():
+            tier_counts[evidence['tier']] += 1
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Tier A Evidence", tier_counts['A'], help="Replicated/Relevant")
+        with col2:
+            st.metric("Tier B Evidence", tier_counts['B'], help="Suggestive/Mixed")
+        with col3:
+            st.metric("Tier C Evidence", tier_counts['C'], help="Exploratory")
+        
+        # Tier distribution chart
+        fig_tiers = px.pie(
+            values=list(tier_counts.values()),
+            names=['Tier A', 'Tier B', 'Tier C'],
+            title='Evidence Distribution by Tier',
+            color_discrete_sequence=['#28a745', '#ffc107', '#6c757d']
+        )
+        st.plotly_chart(fig_tiers, use_container_width=True)
+        
+        # Evidence by drug
+        drug_evidence = {}
+        for evidence in EVIDENCE_REGISTRY.values():
+            drug = evidence['drug']
+            if drug not in drug_evidence:
+                drug_evidence[drug] = 0
+            drug_evidence[drug] += 1
+        
+        fig_drugs = px.bar(
+            x=list(drug_evidence.keys()),
+            y=list(drug_evidence.values()),
+            title='Evidence Entries by Drug',
+            labels={'x': 'Drug', 'y': 'Number of Entries'},
+            color=list(drug_evidence.values()),
+            color_continuous_scale='Blues'
+        )
+        fig_drugs.update_layout(height=400, showlegend=False)
+        st.plotly_chart(fig_drugs, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Existing evidence browser
         for gene_key, evidence in EVIDENCE_REGISTRY.items():
             if evidence['tier'] in tier_filter:
                 with st.expander(f"{evidence['gene_symbol']} - {evidence['variant']}"):
-                    st.markdown(f"**Tier:** {evidence['tier']}")
-                    st.write(evidence['summary'])
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.markdown(f"**Drug:** {evidence['drug']}")
+                        st.markdown(f"**Phenotype:** {evidence['phenotype']}")
+                        st.markdown(f"**Effect:** {evidence['effect_direction']}")
+                        st.markdown(f"**Summary:** {evidence['summary']}")
+                    
+                    with col2:
+                        st.markdown(render_tier_badge(evidence['tier']), unsafe_allow_html=True)
+                        st.write(f"**Certainty:** {evidence['certainty']}")
+                        st.write(f"**Last Review:** {evidence['last_review']}")
+                    
+                    st.markdown("**Citations:**")
+                    for citation in evidence['citations']:
+                        st.write(f"• {citation}")
     
     with tab4:
         st.header("About")
